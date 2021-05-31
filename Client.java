@@ -19,77 +19,77 @@ import org.xml.sax.SAXException;
 public class Client {
 
 	static class ServerConnection {
-		private Socket s;
-		private BufferedReader recieveFromServer;
-		private DataOutputStream sendToServer;
+		private Socket sc;
+		private BufferedReader recievemsgServer;
+		private DataOutputStream sendmsgServer;
 
 		public ServerConnection() throws IOException {
 			// Initialise server connection to localhost, and both read and write methods
-			this.s = new Socket("127.0.0.1", 50000);
-			this.recieveFromServer = new BufferedReader(new InputStreamReader(s.getInputStream()));
-			this.sendToServer = new DataOutputStream(s.getOutputStream());
+			this.sc = new Socket("127.0.0.1", 50000);
+			this.recievemsgServer = new BufferedReader(new InputStreamReader(sc.getInputStream()));
+			this.sendmsgServer = new DataOutputStream(sc.getOutputStream());
 		}
 
-		private void send(String msg) throws IOException {
-			sendToServer.write((msg + "\n").getBytes());
+		private void sendmsg(String txt) throws IOException {
+			sendmsgServer.write((txt + "\n").getBytes());
 		}
 
-		public List<String> read() throws IOException {
-			List<String> serverReplies = new ArrayList<String>();
-			while(serverReplies.size() < 1) {
-				while(this.recieveFromServer.ready()) {
-					serverReplies.add(this.recieveFromServer.readLine());
+		public List<String> readmsg() throws IOException {
+			List<String> serverRespond = new ArrayList<String>();
+			while(serverRespond.size() < 1) {
+				while(this.recievemsgServer.ready()) {
+					serverRespond.add(this.recievemsgServer.readLine());
 				}
 			}
-			return serverReplies;
+			return serverRespond;
 		}
 
 		public void HELO() throws IOException {
-			send("HELO");
-			read();
+			sendmsg("HELO");
+			readmsg();
 		}
 
 		public void AUTH() throws IOException {
-			send("AUTH " + System.getProperty("user.name"));
-			read();
+			sendmsg("AUTH " + System.getProperty("user.name"));
+			readmsg();
 		}
 
 		public void REDY() throws IOException {
-			send("REDY");
+			sendmsg("REDY");
 		}
 
-		public void SCHD(JOBN job, Server server) throws IOException {
-			send("SCHD " + job.id + " " + server.type + " " + server.id);
+ 		public void SCHD(JOBN job, Server server) throws IOException {
+			sendmsg("SCHD " + job.id + " " + server.type + " " + server.id);
 		}
 
 		public List<String> LSTJ(Server server) throws IOException {
-			send("LSTJ " + server.type + " " + server.id);
-			read();
-			send("OK");
+			sendmsg("LSTJ " + server.type + " " + server.id);
+			readmsg();
+			sendmsg("OK");
 
-			List<String> jobStrings = new ArrayList<String>();
+			List<String> jobList = new ArrayList<String>();
 
 			while(true) {
-				String toAdd = read().get(0);
+				String toAdd = readmsg().get(0);
 				if(toAdd.equals(".")) {
 					break;
 				}
-				jobStrings.add(toAdd);
-				send("OK");
+				jobList.add(toAdd);
+				sendmsg("OK");
 			}
 
-			return jobStrings;
+			return jobList;
 		}
 
 		public void flush() throws IOException {
-			sendToServer.flush();
+			sendmsgServer.flush();
 		}
 
 		public void close() throws IOException {
-			send("QUIT");
-			sendToServer.close();
-			recieveFromServer.close();
-			s.close();
+			sendmsg("QUIT");
+			sendmsgServer.close();
+			recievemsgServer.close();
+			sc.close();
 		}
 	}
 
@@ -100,8 +100,8 @@ public class Client {
 		public int memory;
 		public int disk;
 		List<JOBN> jobs;
-		public int jobsRunning;
-		public int jobsWaiting;
+		public int jobsScheduled;
+		public int jobsScheduling;
 
 		public Server(String type, int id, int coreCount, int memory, int disk) {
 			this.type = type;
@@ -110,8 +110,8 @@ public class Client {
 			this.memory = memory;
 			this.disk = disk;
 			this.jobs = new ArrayList<JOBN>();
-			this.jobsRunning = 0;
-			this.jobsWaiting = 0;
+			this.jobsScheduled = 0;
+			this.jobsScheduling = 0;
 		}
 
 		public float workload(JOBN newJob) {
@@ -119,21 +119,21 @@ public class Client {
 				return 0;
 			}
 
-			int runningCoreTotal = 0;
-			for(int i = 0; i < this.jobsRunning; i++) {
-				runningCoreTotal += this.jobs.get(i).core;
+			int usedCore = 0;
+			for(int i = 0; i < this.jobsScheduled; i++) {
+				usedCore += this.jobs.get(i).core;
 			}
 
-			if(runningCoreTotal + newJob.core <= this.coreCount && this.jobsWaiting == 0) {
+			if(usedCore + newJob.core <= this.coreCount && this.jobsScheduling == 0) {
 				return 0;
-			}
+			} 
 
-			float timeTest = 0;
+			float checkTime = 0;
 			for(JOBN job: this.jobs) {
-				timeTest += (float)job.estRuntime * ((float)job.core / this.coreCount);
+				checkTime += (float)job.estRuntime * ((float)job.core / this.coreCount);
 			}
 
-			return timeTest;
+			return checkTime;
 		}
 
 		public boolean isCapable(JOBN job) {
@@ -143,23 +143,23 @@ public class Client {
 				return false;
 			}
 		}
-
+ 
 		public void updateJobStats(ServerConnection SC) throws IOException {
-			List<String> jobStrings = SC.LSTJ(this);
+			List<String> joblists = SC.LSTJ(this);
 
 			List<JOBN> results = new ArrayList<JOBN>();
-			this.jobsRunning = 0;
-			this.jobsWaiting = 0;
+			this.jobsScheduled = 0;
+			this.jobsScheduling = 0;
 
-			for(String s: jobStrings) {
+			for(String s: joblists) {
 				String[] split = s.split(" ");
-				String jobString = "0 0 " + split[0] + " " + split[3] + " " + split[4] + " " + split[5] + " " + split[6];
-				results.add(new JOBN(jobString));
+				String job = "0 0 " + split[0] + " " + split[3] + " " + split[4] + " " + split[5] + " " + split[6];
+				results.add(new JOBN(job));
 				if(split[1].equals("2")) {
-					this.jobsRunning++;
+					this.jobsScheduled++;
 				}
 				if(split[1].equals("1")) {
-					this.jobsWaiting++;
+					this.jobsScheduling++;
 				}
 			}
 
@@ -225,19 +225,19 @@ public class Client {
 		}
 	}
 
-	public static void TTBiasAlgorithm(ServerConnection SC, Servers servers, JOBN job) throws IOException {
-		int resultIndex = -1;
+	public static void turnaroundTime(ServerConnection SC, Servers servers, JOBN job) throws IOException {
+		int result = -1;
 
 		for(int i = 0; i < servers.serverList.size(); i++) {
-			if(servers.serverList.get(i).isCapable(job) && resultIndex == -1) {
-				resultIndex = i;
+			if(servers.serverList.get(i).isCapable(job) && result == -1) {
+				result = i;
 			}
-			if(servers.serverList.get(i).isCapable(job) && servers.serverList.get(i).workload(job) < servers.serverList.get(resultIndex).workload(job)) {
-				resultIndex = i;
+			if(servers.serverList.get(i).isCapable(job) && servers.serverList.get(i).workload(job) < servers.serverList.get(result).workload(job)) {
+				result = i;
 			}
 		}
 
-		SC.SCHD(job, servers.serverList.get(resultIndex));
+		SC.SCHD(job, servers.serverList.get(result));
 	}
 	
 	public static void main(String[] args) {
@@ -254,15 +254,15 @@ public class Client {
 
 			runner: while (true) {
 				SC.REDY();
-				String serverResponse = SC.read().get(0);
+				String serverResponse = SC.readmsg().get(0);
 				String[] serverResponseSplit = serverResponse.split(" ");
 
 				if (serverResponseSplit[0].equals("JOBN")) {
 					JOBN job = new JOBN(serverResponse);
 					servers.updateAllJobStats(SC);
-					TTBiasAlgorithm(SC, servers, job);
+					turnaroundTime(SC, servers, job);
 
-					SC.read();
+					SC.readmsg();
 					}
 
 				if (serverResponseSplit[0].equals("NONE")) {
